@@ -1,5 +1,5 @@
 /* automatisch erzeugt von build.py */
-const CACHE = 'lernplaner-563e5c9f0431';
+const CACHE = 'lernplaner-8a3f3810640a';
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', 'index.html'])).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', (e) => {

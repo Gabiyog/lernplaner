@@ -275,8 +275,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .875rem; }
 .pblock b { display: block; font-weight: 600; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pblock .ch { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exam-mark { font-size: .75rem; background: var(--bad-bg); color: var(--bad); border-radius: 9px; padding: 4px 8px; font-weight: 600; }
-.day-events .ev { font-size: .72rem; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 0; }
-.day-events .ev span { color: var(--text3); font-variant-numeric: tabular-nums; }
+.day-events { display: flex; flex-direction: column; gap: 5px; }
+.day-events .ev { border-radius: 9px; padding: 6px 8px; background: var(--accent-bg); font-size: .75rem; display: flex; flex-direction: column; min-width: 0; }
+.day-events .ev span { color: var(--accent); font-variant-numeric: tabular-nums; font-size: .7rem; font-weight: 600; }
+.day-events .ev b { font-weight: 600; font-size: .78rem; overflow-wrap: anywhere; }
+.day-events .ev i { font-style: normal; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Diagramm */
 .bars { display: flex; align-items: flex-end; gap: 14px; height: 180px; padding: 10px 4px 0; border-bottom: 1px solid var(--line); }
@@ -2559,10 +2562,13 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
   }
 
   // ---------- Start ----------
+  app.nameDevice = function () {
+    if (!app.state.meta.deviceName) app.state.meta.deviceName = /iPhone/.test(navigator.userAgent) ? 'iPhone' : (/iPad/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) ? 'iPad' : /Mac/.test(navigator.userAgent) ? 'Mac' : 'Gerät';
+  };
   app.init = function () {
     app.state = LP.storage.loadState();
     app.resetSig();
-    if (!app.state.meta.deviceName) app.state.meta.deviceName = /iPhone/.test(navigator.userAgent) ? 'iPhone' : (/iPad/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) ? 'iPad' : /Mac/.test(navigator.userAgent) ? 'Mac' : 'Gerät';
+    app.nameDevice();
     applyTheme();
     bindSidebar();
     app.ensureTodayPlan(false);
@@ -2686,6 +2692,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     st.settings.theme = old.settings.theme;
     st.meta = Object.assign({}, old.meta, { modifiedAt: obj.modifiedAt, syncLocal: obj.modifiedAt, syncRemote: obj.modifiedAt, lastSync: new Date().toISOString() });
     app.state = st;
+    app.nameDevice();
     app.resetSig();
     LP.storage.saveState(st);
     app._ver++;
@@ -2746,10 +2753,16 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       if (action === 'conflict') { action = await conflictDlg(obj); if (!action) return; }
       else if (action === 'pull' && !(await confirmPull(obj))) return;
       if (action === 'pull') { applyRemote(obj); LP.ui.toast('Neuerer Stand aus der Sync-Datei geladen ✓', 'ok'); }
-      else if (action === 'push') {
-        const w = await handle.createWritable(); await w.write(JSON.stringify(payload())); await w.close();
-        markPushed(); app.render(); LP.ui.toast('Stand in die Sync-Datei gespeichert ✓', 'ok');
-      } else { markPushed(); app.render(); LP.ui.toast('Alles aktuell ✓', 'ok'); }
+      else {
+        // Immer sofort schreiben – auch wenn sich nichts geändert hat – und danach prüfen, dass die Datei stimmt
+        const data = payload();
+        const w = await handle.createWritable(); await w.write(JSON.stringify(data)); await w.close();
+        const check = readSync(await (await handle.getFile()).text());
+        if (check.modifiedAt !== data.modifiedAt) throw new Error('Die Datei wurde nicht richtig geschrieben.');
+        markPushed(); app.render();
+        const t = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+        LP.ui.toast('Um ' + t + ' in „' + handle.name + '“ gespeichert ✓ Das iPhone bekommt die Datei, sobald iCloud sie zugestellt hat.', 'ok', { duration: 6000 });
+      }
     } catch (e) {
       if (e && e.name === 'AbortError') return;
       if (e && e.name === 'NotFoundError') { await kv('handle', null).catch(() => {}); LP.ui.toast('Die Sync-Datei wurde nicht gefunden. Bitte neu wählen.', 'error'); return; }
@@ -3623,14 +3636,11 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     app.ensureTodayPlan(false);
     const off = st.ui.weekOffset || 0;
     const ws = U.addDays(U.startOfWeek(today), off * 7);
-    const plan = app.plan();
-    const byDate = {};
-    for (const d of plan.days) byDate[d.date] = d;
     const exams = {};
     for (const c of st.courses) if (U.isDateStr(c.examDate)) (exams[c.examDate] = exams[c.examDate] || []).push(c);
 
     let html = '<div class="page wide"><div class="page-head"><div class="grow"><h1>Wochenkalender</h1><div class="page-sub">' +
-      U.fmtDate(ws, { year: false }) + ' – ' + U.fmtDate(U.addDays(ws, 6)) + ' · Klick auf einen Tag ändert die Lernzeit</div></div>' +
+      U.fmtDate(ws, { year: false }) + ' – ' + U.fmtDate(U.addDays(ws, 6)) + ' · deine importierten Termine · Klick auf einen Tag ändert die Lernzeit</div></div>' +
       '<button class="btn" data-wk="-1" aria-label="Vorherige Woche">←</button><button class="btn" data-wk="0">Diese Woche</button><button class="btn" data-wk="1" aria-label="Nächste Woche">→</button></div>';
     html += '<div class="week">';
     for (let i = 0; i < 7; i++) {
@@ -3639,39 +3649,19 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       const cap = P.capacity(d, st.settings);
       const kind = P.dayKind(d, st.settings);
       const ov = st.settings.dayOverrides[d];
-      let blocks = [];
-      if (byDate[d]) blocks = byDate[d].blocks;
       html += '<div class="day' + (d === today ? ' today' : '') + (past ? ' past' : '') + '" data-day="' + d + '">' +
         '<div class="day-head"><span>' + U.WD_SHORT[U.weekday(d)] + '</span><b>' + U.fmtDateShort(d) + '</b></div>' +
         '<div class="day-cap">' + U.fmtMin(cap) + ' · ' + esc(TYPE_LABEL[kind] || '') + (ov ? ' ✎' : '') + '</div>';
       for (const c of exams[d] || []) html += '<div class="exam-mark">🎓 Klausur ' + esc(c.name) + '</div>';
+      // Nur der importierte Kalender wird gezeigt – der empfohlene Lernplan steht unter „Heute“
       const evs = LP.cal.on(d);
-      if (evs.length) html += '<div class="day-events">' + evs.slice(0, 4).map((e) => '<div class="ev" title="' + esc(e.title + (e.location ? ' · ' + e.location : '')) + '"><span>' + esc(e.allDay ? '•' : e.date === d ? e.time : '…') + '</span> ' + esc(e.title) + '</div>').join('') + (evs.length > 4 ? '<div class="ev faint">+ ' + (evs.length - 4) + ' weitere</div>' : '') + '</div>';
-      if (past) {
-        const h = st.history[d];
-        const learned = app.loggedMinutes(d);
-        if (h && h.planned) for (const [cid, m] of Object.entries(h.planned)) {
-          const c = app.course(cid); if (!c) continue;
-          html += '<div class="pblock" style="--c:' + esc(app.courseColor(c)) + '"><b>' + esc(c.emoji + ' ' + c.name) + '</b>geplant ' + U.fmtMin(m) + '</div>';
-        }
-        html += '<div class="small faint">gelernt: ' + U.fmtMin(learned) + '</div>';
-      } else {
-        for (const b of blocks) {
-          const c = app.course(b.courseId); if (!c) continue;
-          const names = b.items.map((it) => { const ch = c.chapters.find((x) => x.id === it.chapterId); return ch ? ch.title : ''; }).filter(Boolean);
-          html += '<div class="pblock" style="--c:' + esc(app.courseColor(c)) + '"><b>' + esc(c.emoji + ' ' + c.name) + '</b>' + U.fmtMin(b.minutes) +
-            (b.kind === 'wiederholung' ? ' · Wiederholung' : '') + names.slice(0, 3).map((n) => '<div class="ch">· ' + esc(n) + '</div>').join('') +
-            (names.length > 3 ? '<div class="ch">+ ' + (names.length - 3) + ' weitere</div>' : '') + '</div>';
-        }
-        if (!blocks.length && cap > 0 && d >= today) html += '<div class="small faint">nichts geplant</div>';
-      }
+      if (evs.length) html += '<div class="day-events">' + evs.slice(0, 8).map((e) => '<div class="ev" title="' + esc(e.title + (e.location ? ' · ' + e.location : '')) + '"><span>' + esc(e.allDay ? 'ganztägig' : LP.cal.fmtTime(e, d)) + '</span><b>' + esc(e.title) + '</b>' + (e.location ? '<i>' + esc(e.location) + '</i>' : '') + '</div>').join('') + (evs.length > 8 ? '<div class="small faint">+ ' + (evs.length - 8) + ' weitere</div>' : '') + '</div>';
+      else if (!(exams[d] || []).length) html += '<div class="small faint">keine Termine</div>';
+      if (past) { const learned = app.loggedMinutes(d); if (learned) html += '<div class="small faint" style="margin-top:auto">gelernt: ' + U.fmtMin(learned) + '</div>'; }
       html += '</div>';
     }
     html += '</div>';
-    // Wochensumme
-    let sum = 0;
-    for (let i = 0; i < 7; i++) { const d = U.addDays(ws, i); if (d >= today && byDate[d]) sum += byDate[d].blocks.reduce((s, b) => s + b.minutes, 0); }
-    html += '<p class="muted small" style="margin-top:12px">Geplant ab heute in dieser Woche: ' + U.fmtMin(sum) + ' · Tagesanteil: ' + Math.round(plan.share * 100) + ' %</p></div>';
+    html += (st.calendar.events.length ? '' : '<p class="muted small" style="margin-top:14px">Noch kein Kalender importiert. Unter Einstellungen → Kalender kannst du eine .ics-Datei laden.</p>') + '</div>';
     main.innerHTML = html;
     main.oninput = null; main.onchange = null;
     main.onclick = (e) => {
@@ -4157,6 +4147,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       const state = await LP.storage.importBackup(obj);
       state.meta.modifiedAt = new Date().toISOString();
       LP.app.state = state;
+      LP.app.nameDevice();
       LP.app.resetSig();
       LP.storage.saveState(state);
       LP.app._ver++;
@@ -4175,6 +4166,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     LP.pdf.closeAll();
     await LP.storage.wipeAll();
     LP.app.state = LP.model.migrate(null);
+    LP.app.nameDevice();
     LP.app.resetSig();
     LP.app._ver++;
     LP.app.applyTheme();
