@@ -275,6 +275,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .875rem; }
 .pblock b { display: block; font-weight: 600; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pblock .ch { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exam-mark { font-size: .75rem; background: var(--bad-bg); color: var(--bad); border-radius: 9px; padding: 4px 8px; font-weight: 600; }
+.due-mark { font-size: .75rem; background: var(--warn-bg); color: var(--warn); border-radius: 9px; padding: 4px 8px; font-weight: 600; cursor: pointer; }
+.due-mark.done { opacity: .5; text-decoration: line-through; }
 .day-events { display: flex; flex-direction: column; gap: 5px; }
 .day-events .ev { border-radius: 9px; padding: 6px 8px; background: var(--accent-bg); font-size: .75rem; display: flex; flex-direction: column; min-width: 0; }
 .day-events .ev span { color: var(--accent); font-variant-numeric: tabular-nums; font-size: .7rem; font-weight: 600; }
@@ -463,6 +465,29 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .875rem; }
   .card, .list, .btn, .inp, .chip { outline: 1px solid var(--line); }
 }
 
+/* Gewohnheiten */
+.habit-row { flex-wrap: wrap; }
+.habit-days { display: flex; gap: 4px; margin-left: auto; }
+.hday { border: 0; background: var(--fill); color: var(--text3); border-radius: 10px; width: 36px; height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: .8rem; font-weight: 700; cursor: pointer; }
+.hday span { font-size: .6rem; font-weight: 500; }
+.hday.done { background: var(--ok-bg); color: var(--ok); }
+.hday.today { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Umschalter Gym | Protein: nur auf dem iPhone (dort teilen sich beide den Tab „Fitness“) */
+.seg { display: inline-flex; background: var(--fill); border-radius: 10px; padding: 2px; gap: 2px; }
+.seg button { border: 0; background: none; color: var(--text2); border-radius: 8px; padding: 6px 18px; font-weight: 600; font-size: .875rem; cursor: pointer; min-height: 32px; }
+.seg button.active { background: var(--card2); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.fit-switch { display: none; }
+@media (max-width: 760px) { .fit-switch { display: flex; margin-bottom: 14px; } .fit-switch button { flex: 1; } .habit-days { margin-left: 0; width: 100%; justify-content: space-between; } }
+
+/* Ziele und Tageswert */
+.goal { display: block; width: 100%; text-align: left; border: 0; background: none; color: inherit; padding: 8px 0; cursor: pointer; border-top: 1px solid var(--line); font: inherit; }
+.goal:first-of-type { border-top: 0; }
+.goal .bar { margin: 6px 0 2px; }
+.score { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 72px; padding: 6px 10px; border-radius: 14px; background: var(--fill); }
+.score b { font-size: 1.5rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.score span { font-size: .68rem; color: var(--text2); }
+
 </style>
 </head>
 <body>
@@ -647,6 +672,10 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       protein: { weightKg: '', factor: 1.8, foods: [], entries: [] }, // foods: {id,name,unit:'g'|'portion',per100,perPortion,portionName}; entries: {id,date,foodId,name,amount,unit,protein}
       todos: [],                     // {id,title,date,time,repeat,done,doneDate,note}
       calendar: { name: '', events: [], importedAt: '' },
+      habits: [],                    // {id,name,emoji,freq:'daily'|'weekly',target,created,days:['YYYY-MM-DD']}
+      finance: { budget: '', categories: ['Essen', 'Miete', 'Uni', 'Transport', 'Freizeit', 'Sonstiges'], entries: [] }, // entries: {id,date,type:'out'|'in',amount,category,note}
+      goals: [],                     // {id,title,target,unit,deadline,start,source,ref,value}
+      reviewNotes: {},               // Montag 'YYYY-MM-DD' → Text (Wochenrückblick)
       meta: { deviceName: '', modifiedAt: '', syncLocal: '', syncRemote: '', lastSync: '' },
       ui: { view: 'start', courseId: null, tab: 'kapitel', subject: {} , weekOffset: 0, reviewOffset: 0 }
     };
@@ -673,6 +702,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     return { id: '', type: 'probeklausur', title: '', subjectId: '', created: '', durationMin: 90, questions: [], attempts: [] };
   }
 
+  const GOAL_SRC = ['manual', 'habit', 'gym', 'savings', 'chapters'];
   const isObj = (o) => o && typeof o === 'object' && !Array.isArray(o);
 
   /** Fügt fehlende Felder aus defaults hinzu, ohne vorhandene zu überschreiben. */
@@ -714,6 +744,13 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     s.protein.entries = arr(s.protein.entries).filter(isObj);
     s.todos = arr(s.todos).filter(isObj).map((t) => { if (!t.id) t.id = uidLike('d'); if (!t.repeat) t.repeat = 'none'; return t; });
     s.calendar.events = arr(s.calendar.events).filter(isObj);
+    s.habits = arr(s.habits).filter(isObj).map((h) => { if (!h.id) h.id = uidLike('h'); h.days = arr(h.days).filter((d) => typeof d === 'string'); if (h.freq !== 'weekly') h.freq = 'daily'; return h; });
+    if (!isObj(s.finance)) s.finance = defaultState().finance;
+    s.finance.entries = arr(s.finance.entries).filter(isObj);
+    s.finance.categories = arr(s.finance.categories).filter((c) => typeof c === 'string' && c);
+    if (!s.finance.categories.length) s.finance.categories = defaultState().finance.categories;
+    s.goals = arr(s.goals).filter(isObj).map((g) => { if (!g.id) g.id = uidLike('z'); if (!GOAL_SRC.includes(g.source)) g.source = 'manual'; return g; });
+    if (!isObj(s.reviewNotes)) s.reviewNotes = {};
     if (!isObj(s.plan)) s.plan = { today: null };
     s.schemaVersion = SCHEMA_VERSION;
     return s;
@@ -1274,7 +1311,138 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     return localChanged ? 'push' : 'same';
   }
 
-  const api = { syncDecide, dayType, streak, gymStats, proteinGoal, proteinFor, proteinDay, REPEAT, nextDate, completeTodo, sortTodos, todoState, parseIcs, parseIcsTime, expandEvents, eventsOn };
+  // ---------- Gewohnheiten ----------
+  // habit: { id, name, emoji, freq: 'daily'|'weekly', target (Mal pro Woche), created, days: ['YYYY-MM-DD'] }
+  const doneOn = (h, date) => (h.days || []).indexOf(date) >= 0;
+  const isSick = (gym, date) => dayType(gym || {}, date) === 'krank';
+  function weekCount(h, date) {
+    const ws = U.startOfWeek(date), we = U.addDays(ws, 6);
+    return (h.days || []).filter((d) => d >= ws && d <= we).length;
+  }
+  function habitTarget(h) { return Math.min(7, Math.max(1, Math.round(Number(h.target) || 1))); }
+  /**
+   * Streak. Täglich: Tage in Folge (krank pausiert, heute offen bricht nicht).
+   * Wöchentlich: Wochen in Folge mit Ziel erreicht (laufende Woche bricht nicht; eine verfehlte Woche mit Krank-Tagen pausiert).
+   */
+  function habitStreak(h, gym, today) {
+    const days = (h.days || []).filter(U.isDateStr).sort();
+    if (!days.length) return 0;
+    const first = days[0];
+    let n = 0;
+    if (h.freq === 'weekly') {
+      const tgt = habitTarget(h);
+      for (let ws = U.startOfWeek(today), i = 0; ws >= U.startOfWeek(first) && i < 530; ws = U.addDays(ws, -7), i++) {
+        if (weekCount(h, ws) >= tgt) { n++; continue; }
+        if (ws === U.startOfWeek(today)) continue;
+        let sick = false;
+        for (let k = 0; k < 7; k++) if (isSick(gym, U.addDays(ws, k))) sick = true;
+        if (!sick) break;
+      }
+      return n;
+    }
+    for (let d = today, i = 0; d >= first && i < 3660; d = U.addDays(d, -1), i++) {
+      if (doneOn(h, d)) n++;
+      else if (isSick(gym, d) || d === today) continue;
+      else break;
+    }
+    return n;
+  }
+  /** Muss die Gewohnheit heute erledigt werden? Wöchentlich: nur wenn erledigt oder sonst das Wochenziel nicht mehr erreichbar ist. */
+  function habitDue(h, gym, date) {
+    if (isSick(gym, date)) return false;
+    if (h.freq !== 'weekly') return true;
+    if (doneOn(h, date)) return true;
+    const need = habitTarget(h) - weekCount(h, date);
+    const daysLeft = 7 - ((U.weekday(date) + 6) % 7); // inklusive heute, Woche Mo–So
+    return need > 0 && need >= daysLeft;
+  }
+  function toggleHabit(h, date) {
+    h.days = doneOn(h, date) ? h.days.filter((d) => d !== date) : (h.days || []).concat(date).sort();
+    return h;
+  }
+
+  // ---------- Finanzen ----------
+  // finance: { budget, categories: [], entries: [{ id, date, type: 'out'|'in', amount, category, note }] }
+  const money = (x) => Math.round((Number(x) || 0) * 100) / 100;
+  function financeMonth(f, month) {
+    const list = (f.entries || []).filter((e) => (e.date || '').slice(0, 7) === month);
+    let income = 0, expenses = 0; const byCat = {};
+    for (const e of list) {
+      const a = Math.abs(Number(e.amount) || 0);
+      if (e.type === 'in') income += a;
+      else { expenses += a; byCat[e.category || 'Sonstiges'] = (byCat[e.category || 'Sonstiges'] || 0) + a; }
+    }
+    for (const k of Object.keys(byCat)) byCat[k] = money(byCat[k]);
+    const budget = Number(f.budget) || 0;
+    return { entries: list, income: money(income), expenses: money(expenses), balance: money(income - expenses), byCat, budget, left: budget ? money(budget - expenses) : null };
+  }
+  /** Ersparnis (Einnahmen − Ausgaben) im Zeitraum, inklusive. */
+  function savings(f, from, to) {
+    let s = 0;
+    for (const e of f.entries || []) if (e.date >= from && e.date <= to) s += (e.type === 'in' ? 1 : -1) * Math.abs(Number(e.amount) || 0);
+    return money(s);
+  }
+
+  // ---------- Ziele ----------
+  // goal: { id, title, target, unit, deadline, start, source: 'manual'|'habit'|'gym'|'savings'|'chapters', ref, value }
+  const GOAL_SOURCES = { manual: 'von Hand', habit: 'Gewohnheit', gym: 'Gym-Trainings', savings: 'Ersparnis (€)', chapters: 'Kapitel erledigt' };
+  /** Aktueller Wert eines Ziels; verknüpfte Ziele zählen ab dem Startdatum des Ziels. */
+  function goalValue(g, st, today) {
+    const from = g.start || '0000-00-00';
+    if (g.source === 'habit') { const h = (st.habits || []).find((x) => x.id === g.ref); return h ? (h.days || []).filter((d) => d >= from && d <= today).length : 0; }
+    if (g.source === 'gym') return new Set(((st.gym || {}).sessions || []).filter((x) => x.date >= from && x.date <= today).map((x) => x.date)).size;
+    if (g.source === 'savings') return savings(st.finance || {}, from, today);
+    if (g.source === 'chapters') {
+      let n = 0;
+      for (const c of st.courses || []) if (!g.ref || c.id === g.ref) for (const ch of c.chapters || []) if (ch.done && (ch.doneDate || '') >= from) n++;
+      return n;
+    }
+    return Number(g.value) || 0;
+  }
+  function goalProgress(g, st, today) {
+    const value = goalValue(g, st, today), target = Number(g.target) || 0;
+    const pct = target > 0 ? Math.max(0, Math.min(1, value / target)) : 0;
+    const daysLeft = U.isDateStr(g.deadline) ? U.diffDays(today, g.deadline) : null;
+    return { value, target, pct, done: target > 0 && value >= target, daysLeft };
+  }
+
+  // ---------- Tageswert (0–100) ----------
+  /**
+   * Teile (je 0–1 oder null = nichts fällig): Lernplan, Gewohnheiten, Gym/Protein, To-dos.
+   * Wert = Durchschnitt der fälligen Teile × 100, oder null, wenn nichts fällig war.
+   */
+  function scoreParts(st, today) {
+    const parts = { plan: null, habits: null, fit: null, todos: null };
+    const tp = st.plan && st.plan.today;
+    if (tp && tp.date === today && (tp.blocks || []).length) {
+      let all = 0, got = 0;
+      for (const b of tp.blocks) {
+        if (b.kind === 'wiederholung') { all += b.minutes || 0; if (b.status) got += b.minutes || 0; }
+        for (const it of b.items || []) {
+          const c = (st.courses || []).find((x) => x.id === b.courseId);
+          const ch = c && c.chapters.find((x) => x.id === it.chapterId);
+          all += it.minutes || 0;
+          got += it.status === 'done' || (ch && ch.done) ? it.minutes || 0 : Math.min(it.minutes || 0, it.doneMin || 0);
+        }
+      }
+      if (all > 0) parts.plan = got / all;
+    }
+    const due = (st.habits || []).filter((h) => habitDue(h, st.gym, today));
+    if (due.length) parts.habits = due.filter((h) => doneOn(h, today)).length / due.length;
+    const gymPart = dayType(st.gym || {}, today) ? 1 : 0;
+    const pd = proteinDay(st.protein || {}, today);
+    parts.fit = pd.goal ? (gymPart + pd.pct) / 2 : gymPart;
+    const doneToday = (st.todos || []).filter((t) => (t.done && t.doneDate === today) || t.lastDone === today).length;
+    const openDue = (st.todos || []).filter((t) => !t.done && t.date && t.date <= today).length;
+    if (doneToday + openDue) parts.todos = doneToday / (doneToday + openDue);
+    return parts;
+  }
+  function dayScore(parts) {
+    const v = Object.values(parts).filter((x) => x !== null);
+    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 100) : null;
+  }
+
+  const api = { doneOn, habitStreak, habitDue, habitTarget, weekCount, toggleHabit, financeMonth, savings, GOAL_SOURCES, goalValue, goalProgress, scoreParts, dayScore, syncDecide, dayType, streak, gymStats, proteinGoal, proteinFor, proteinDay, REPEAT, nextDate, completeTodo, sortTodos, todoState, parseIcs, parseIcsTime, expandEvents, eventsOn };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else { root.LP = root.LP || {}; root.LP.life = api; }
 })(typeof self !== 'undefined' ? self : this);
@@ -1957,7 +2125,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       } else {
         inp = '<input class="inp" id="' + id + '" name="' + f.name + '" type="' + (f.type || 'text') + '" value="' + esc(f.value == null ? '' : f.value) + '"' +
           (f.min != null ? ' min="' + f.min + '"' : '') + (f.max != null ? ' max="' + f.max + '"' : '') + (f.step != null ? ' step="' + f.step + '"' : '') +
-          (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') + (f.autofocus ? ' autofocus' : '') + '>';
+          (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') + (f.inputmode ? ' inputmode="' + f.inputmode + '"' : '') + (f.autofocus ? ' autofocus' : '') + '>';
       }
       return '<label class="fld"><span>' + esc(f.label) + '</span>' + inp + (f.hint ? '<small>' + esc(f.hint) + '</small>' : '') + '</label>';
     }).join('');
@@ -2260,7 +2428,9 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     ['dashboard', 'grid', 'Übersicht'], ['woche', 'calendar', 'Wochenkalender'],
     ['rueckblick', 'chart', 'Wochenrückblick'], ['timer', 'timer', 'Timer'], ['aufgaben', 'check', 'Aufgaben'],
     'Fitness',
-    ['gym', 'dumbbell', 'Gym'], ['protein', 'bolt', 'Protein']
+    ['gym', 'dumbbell', 'Gym'], ['protein', 'bolt', 'Protein'],
+    'Alltag',
+    ['gewohnheiten', 'repeat', 'Gewohnheiten'], ['finanzen', 'euro', 'Finanzen']
   ];
   // Schlichte Linien-Symbole (24er Raster)
   const ICONS = {
@@ -2276,6 +2446,8 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    repeat: '<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5M20 4v4.5h-4.5M20 12a8 8 0 0 1-13.7 5.6L4 15.5M4 20v-4.5h4.5"/>',
+    euro: '<path d="M17.5 6.5A7 7 0 1 0 17.5 17.5M4 10h9M4 14h9"/>',
     more: '<circle cx="12" cy="12" r="8.5"/><path d="M8 12h.01M12 12h.01M16 12h.01"/>'
   };
   const icon = (n) => '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[n] || '') + '</svg>';
@@ -2370,9 +2542,12 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     course.log.push(e);
     return e;
   };
+  /** Umschalter Gym | Protein (nur auf dem iPhone sichtbar, dort teilen sich beide einen Tab). */
+  app.fitSwitch = (cur) => '<div class="seg fit-switch" role="tablist">' + [['gym', 'Gym'], ['protein', 'Protein']].map(([v, l]) => '<button role="tab" class="' + (cur === v ? 'active' : '') + '" aria-selected="' + (cur === v) + '" data-nav="' + v + '">' + l + '</button>').join('') + '</div>';
   app.go = function (view, params) {
     const ui = app.state.ui;
     ui.view = view;
+    if (view === 'gym' || view === 'protein') ui.fitTab = view;
     if (params && params.courseId) ui.courseId = params.courseId;
     if (params && params.tab) ui.tab = params.tab;
     app.save();
@@ -2452,11 +2627,13 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       '<button class="nav-item" data-act="theme"><span class="ico">' + icon(st.settings.theme === 'dark' ? 'sun' : 'moon') + '</span><span class="lbl">' + (st.settings.theme === 'dark' ? 'Heller Modus' : 'Dunkler Modus') + '</span></button></div>';
   }
   // Tab-Leiste für schmale Bildschirme (iPhone)
-  const TABS = [['start', 'home', 'Start'], ['dashboard', 'grid', 'Lernen'], ['gym', 'dumbbell', 'Gym'], ['protein', 'bolt', 'Protein']];
+  // 'fitness' = Gym und Protein in einem Tab (Umschalter oben in beiden Ansichten)
+  const TABS = [['start', 'home', 'Start'], ['dashboard', 'grid', 'Lernen'], ['fitness', 'dumbbell', 'Fitness'], ['gewohnheiten', 'repeat', 'Gewohnheiten']];
+  const tabOf = (v) => (v === 'gym' || v === 'protein' ? 'fitness' : v);
   function renderTabbar() {
     const tb = document.getElementById('tabbar'); if (!tb) return;
-    const v = app.state.ui.view;
-    tb.innerHTML = TABS.map(([id, ico, lbl]) => '<button class="tabbar-item' + (v === id ? ' active' : '') + '" data-nav="' + id + '">' + icon(ico) + '<span>' + lbl + '</span></button>').join('') +
+    const v = tabOf(app.state.ui.view);
+    tb.innerHTML = TABS.map(([id, ico, lbl]) => '<button class="tabbar-item' + (v === id ? ' active' : '') + '" data-nav="' + (id === 'fitness' ? app.state.ui.fitTab || 'gym' : id) + '">' + icon(ico) + '<span>' + lbl + '</span></button>').join('') +
       '<button class="tabbar-item' + (TABS.some((t) => t[0] === v) ? '' : ' active') + '" data-act="more" aria-label="Mehr">' + icon('more') + '<span>Mehr</span></button>';
   }
   const closeNav = () => document.getElementById('app').classList.remove('nav-open');
@@ -2915,9 +3092,17 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
 
     const pd = L.proteinDay(st.protein, today);
     const sync = LP.sync.dirty();
-    main.innerHTML = '<div class="page wide"><div class="page-head"><div class="grow"><h1>' + greet + '</h1><div class="page-sub">' + U.fmtDate(today, { weekday: true }) + '</div></div>' +
+    const parts = L.scoreParts(st, today), score = L.dayScore(parts);
+    // Tageswert für den Wochenrückblick merken (history zählt nicht als Änderung beim Abgleich)
+    const hist = st.history[today] = st.history[today] || {};
+    if (hist.score !== score) { hist.score = score; app.save(); }
+    const PART_LABEL = { plan: 'Lernplan', habits: 'Gewohnheiten', fit: 'Gym & Protein', todos: 'To-dos' };
+    const scoreHtml = '<div class="score" title="' + esc(Object.entries(parts).filter(([, v]) => v !== null).map(([k, v]) => PART_LABEL[k] + ' ' + Math.round(v * 100) + ' %').join(' · ')) + '"><b>' + (score == null ? '–' : score) + '</b><span>Tageswert</span></div>';
+    main.innerHTML = '<div class="page wide"><div class="page-head"><div class="grow"><h1>' + greet + '</h1><div class="page-sub">' + U.fmtDate(today, { weekday: true }) + '</div></div>' + scoreHtml +
       (st.meta.lastSync ? '<button class="btn' + (sync ? ' primary' : '') + '" data-act="sync" title="Letzter Abgleich: ' + esc(new Date(st.meta.lastSync).toLocaleString('de-DE')) + '">' + (sync ? '↑ Abgleichen' : '✓ Abgeglichen') + '</button>' : '') + '</div>' +
-      '<div class="home"><div class="home-main">' + todoHtml + planHtml + '</div><div class="home-side">' +
+      '<div class="home"><div class="home-main">' + todoHtml +
+      '<div class="card"><div class="row" style="margin-bottom:10px"><h3 class="grow" style="margin:0">Gewohnheiten heute</h3>' + (st.habits.length ? '<button class="btn sm ghost" data-nav="gewohnheiten">Öffnen →</button>' : '') + '</div>' + LP.habits.chipsHtml(today) + '</div>' +
+      planHtml + '</div><div class="home-side">' + LP.goals.cardHtml(today) +
       '<div class="card" data-nav-card="gym"><div class="row" style="margin-bottom:10px"><h3 class="grow" style="margin:0">Gym</h3><button class="btn sm ghost" data-nav="gym">Öffnen →</button></div>' + LP.gym.todayCardHtml(true) + '</div>' +
       '<div class="card"><div class="row" style="margin-bottom:10px"><h3 class="grow" style="margin:0">Protein heute</h3><button class="btn sm ghost" data-nav="protein">Öffnen →</button></div>' +
       '<div class="streak-row" style="margin-bottom:12px">' + LP.protein.ringHtml(today, 104) + '<div class="grow muted">' + (pd.goal ? (pd.left > 0 ? 'Noch <b style="color:var(--text)">' + LP.protein.fmtG(pd.left) + '</b> bis zum Ziel' : 'Tagesziel erreicht ✓') : 'Noch kein Tagesziel – trage unter Protein dein Gewicht ein.') + '</div></div>' + LP.protein.quickAddHtml() + '</div>' +
@@ -2946,6 +3131,8 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     main.onclick = async (e) => {
       if (LP.gym.handleClick(e)) return;
       if (LP.protein.handleQuick(e, today)) return;
+      if (LP.habits.handleClick(e)) return;
+      if (LP.goals.handleClick(e)) return;
       let el;
       if ((el = e.target.closest('[data-nav]'))) { app.go(el.dataset.nav); return; }
       if ((el = e.target.closest('[data-tdel]'))) {
@@ -3170,7 +3357,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     const sessions = g.sessions.slice().sort((a, b) => (a.date + (a.start || '') < b.date + (b.start || '') ? 1 : -1));
     const sick = g.sick.slice().sort((a, b) => (a.from < b.from ? 1 : -1));
 
-    main.innerHTML = '<div class="page"><div class="page-head"><div class="grow"><h1>Gym</h1><div class="page-sub">Gym-Tage in Folge. Krank- und Ruhetage pausieren den Streak, jeder andere Tag ohne Training beendet ihn.</div></div>' +
+    main.innerHTML = '<div class="page">' + LP.app.fitSwitch('gym') + '<div class="page-head"><div class="grow"><h1>Gym</h1><div class="page-sub">Gym-Tage in Folge. Krank- und Ruhetage pausieren den Streak, jeder andere Tag ohne Training beendet ihn.</div></div>' +
       '<button class="btn" data-gym="add">Training nachtragen</button><button class="btn" data-gym="sick">Krank melden</button></div>' +
       '<div class="card hero">' + todayCardHtml(false) + '</div>' +
       '<div class="cards stats">' +
@@ -3190,6 +3377,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
         '<button class="icon-btn" data-sdel="' + s.id + '" aria-label="Krank-Eintrag löschen" title="Löschen">🗑</button></div>').join('') + '</div>' : '<div class="empty">Keine Krank-Tage.</div>') + '</div></div></div>';
     main.oninput = null; main.onchange = null;
     main.onclick = async (e) => {
+      const fsw = e.target.closest('.fit-switch [data-nav]'); if (fsw) { LP.app.go(fsw.dataset.nav); return; }
       if (handleClick(e)) return;
       let el;
       if ((el = e.target.closest('[data-gm]'))) { monthOffset = el.dataset.gm === '0' ? 0 : Math.min(0, monthOffset + Number(el.dataset.gm)); app.render(); return; }
@@ -3310,7 +3498,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     const max = Math.max(d.goal || 0, ...week.map((w) => w.total), 1);
     const avg = Math.round(week.reduce((a, w) => a + w.total, 0) / 7);
 
-    main.innerHTML = '<div class="page"><div class="page-head"><div class="grow"><h1>Protein</h1><div class="page-sub">' + (dayOffset === 0 ? 'Heute · ' : dayOffset === -1 ? 'Gestern · ' : '') + U.fmtDate(date, { weekday: true }) + '</div></div>' +
+    main.innerHTML = '<div class="page">' + LP.app.fitSwitch('protein') + '<div class="page-head"><div class="grow"><h1>Protein</h1><div class="page-sub">' + (dayOffset === 0 ? 'Heute · ' : dayOffset === -1 ? 'Gestern · ' : '') + U.fmtDate(date, { weekday: true }) + '</div></div>' +
       '<button class="btn" data-pd="-1" aria-label="Vorheriger Tag">←</button><button class="btn" data-pd="0">Heute</button><button class="btn" data-pd="1" aria-label="Nächster Tag"' + (dayOffset >= 0 ? ' disabled' : '') + '>→</button></div>' +
       '<div class="card hero"><div class="streak-row">' + ringHtml(date, 148) + '<div class="grow">' +
       (d.goal ? '<div class="big-line">' + (d.left > 0 ? 'Noch <b>' + fmtG(d.left) + '</b> bis zum Ziel' : 'Tagesziel erreicht ✓') + '</div>' : '<div class="big-line">Trage unten dein Körpergewicht ein, dann berechne ich dein Tagesziel.</div>') +
@@ -3348,6 +3536,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       }
     };
     main.onclick = async (e) => {
+      const fsw = e.target.closest('.fit-switch [data-nav]'); if (fsw) { LP.app.go(fsw.dataset.nav); return; }
       if (handleQuick(e, date)) return;
       let el;
       if ((el = e.target.closest('[data-pd]'))) { if (el.disabled) return; dayOffset = el.dataset.pd === '0' ? 0 : Math.min(0, dayOffset + Number(el.dataset.pd)); app.render(); return; }
@@ -3362,6 +3551,254 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
   }
   LP.protein = { quickAddHtml, handleQuick, ringHtml, editFood, addEntry, fmtG };
   LP.app.views.protein = { render };
+})(typeof self !== 'undefined' ? self : this);
+
+</script>
+<script>/* js/views/habits.js */
+/* Gewohnheiten: täglich oder X-mal pro Woche, Streak (krank pausiert), letzte 7 Tage zum Nachtragen */
+(function (root) {
+  'use strict';
+  const LP = root.LP, U = LP.u, L = LP.life, esc = U.esc;
+
+  const freqLabel = (h) => (h.freq === 'weekly' ? L.habitTarget(h) + '× pro Woche' : 'täglich');
+
+  async function editHabit(habit) {
+    const app = LP.app, isNew = !habit;
+    const h = habit || { id: '', name: '', emoji: '✅', freq: 'daily', target: 3, days: [] };
+    const r = await LP.ui.form(isNew ? 'Neue Gewohnheit' : 'Gewohnheit bearbeiten', [
+      { name: 'name', label: 'Name', value: h.name, placeholder: 'z. B. Lesen, Vokabeln, 8 h Schlaf', autofocus: true },
+      { name: 'emoji', label: 'Emoji', value: h.emoji || '✅' },
+      { name: 'freq', label: 'Wie oft', type: 'select', value: h.freq, options: [{ value: 'daily', label: 'Täglich' }, { value: 'weekly', label: 'X-mal pro Woche' }] },
+      { name: 'target', label: 'Mal pro Woche', type: 'number', value: h.target || 3 }
+    ], {
+      extraButtons: isNew ? [] : [{ label: 'Löschen', value: 'delete', kind: 'ghost' }],
+      validate: (v) => (v === 'delete' ? '' : !v.name.trim() ? 'Bitte einen Namen eingeben.' : v.freq === 'weekly' && !(Number(v.target) >= 1 && Number(v.target) <= 7) ? 'Bitte 1 bis 7 Mal pro Woche wählen.' : ''),
+      onOpen(el) {
+        const sel = el.querySelector('#f_freq'), t = el.querySelector('#f_target').closest('.fld');
+        const upd = () => { t.style.display = sel.value === 'weekly' ? '' : 'none'; };
+        sel.addEventListener('change', upd); upd();
+      }
+    });
+    if (!r) return;
+    if (r === 'delete') {
+      if (!(await LP.ui.confirm('„' + h.name + '“ mit allen Einträgen löschen?', { ok: 'Löschen', danger: true }))) return;
+      app.state.habits = app.state.habits.filter((x) => x !== h); app.commit(); return;
+    }
+    Object.assign(h, { name: r.name.trim(), emoji: r.emoji.trim() || '✅', freq: r.freq, target: r.freq === 'weekly' ? Math.round(Number(r.target)) : 1 });
+    if (isNew) { h.id = U.uid('h'); h.created = app.today(); app.state.habits.push(h); }
+    app.commit();
+  }
+
+  /** Kompakte Reihe zum Abhaken (Startseite). */
+  function chipsHtml(today) {
+    const st = LP.app.state;
+    if (!st.habits.length) return '<p class="muted small" style="margin:0">Noch keine Gewohnheiten. <button class="btn sm ghost" data-nav="gewohnheiten">Anlegen →</button></p>';
+    return '<div class="row wrap" style="gap:6px">' + st.habits.map((h) => {
+      const done = L.doneOn(h, today);
+      return '<button class="chip' + (done ? ' active' : '') + '" data-habit="' + h.id + '" data-date="' + today + '" aria-pressed="' + done + '" title="' + esc(freqLabel(h)) + '">' +
+        esc(h.emoji + ' ' + h.name) + (h.freq === 'weekly' ? ' <span class="faint">' + L.weekCount(h, today) + '/' + L.habitTarget(h) + '</span>' : '') + '</button>';
+    }).join('') + '</div>';
+  }
+  /** Klick auf eine Gewohnheit (Chip oder Tag) – gibt true zurück, wenn behandelt. */
+  function handleClick(e) {
+    const el = e.target.closest('[data-habit]'); if (!el) return false;
+    const h = LP.app.state.habits.find((x) => x.id === el.dataset.habit); if (!h) return true;
+    L.toggleHabit(h, el.dataset.date);
+    LP.app.commit();
+    return true;
+  }
+
+  function render(main) {
+    const app = LP.app, st = app.state, today = app.today();
+    const days = []; for (let i = 6; i >= 0; i--) days.push(U.addDays(today, -i));
+    const dueToday = st.habits.filter((h) => L.habitDue(h, st.gym, today));
+    let html = '<div class="page"><div class="page-head"><div class="grow"><h1>Gewohnheiten</h1><div class="page-sub">' +
+      (dueToday.length ? dueToday.filter((h) => L.doneOn(h, today)).length + ' von ' + dueToday.length + ' heute erledigt' : 'Heute nichts fällig') +
+      ' · Krank-Tage (unter Gym) pausieren jeden Streak</div></div><button class="btn primary" data-act="habit-add">＋ Gewohnheit</button></div>';
+    if (!st.habits.length) html += '<div class="empty">Noch keine Gewohnheiten. Lege z. B. „Lesen“ (täglich) oder „Schwimmen“ (2× pro Woche) an.</div>';
+    else {
+      html += '<div class="list">' + st.habits.map((h) => {
+        const stk = L.habitStreak(h, st.gym, today);
+        return '<div class="li habit-row"><button class="todo-main" data-hedit="' + h.id + '"><span class="title">' + esc(h.emoji + ' ' + h.name) + '</span>' +
+          '<span class="todo-meta">' + esc(freqLabel(h)) + (h.freq === 'weekly' ? ' · diese Woche ' + L.weekCount(h, today) + '/' + L.habitTarget(h) : '') + (stk ? ' · 🔥 ' + stk + (h.freq === 'weekly' ? ' Wo.' : ' T') : '') + '</span></button>' +
+          '<div class="habit-days">' + days.map((d) => {
+            const done = L.doneOn(h, d);
+            return '<button class="hday' + (done ? ' done' : '') + (d === today ? ' today' : '') + '" data-habit="' + h.id + '" data-date="' + d + '" aria-pressed="' + done + '" aria-label="' + esc(h.name + ' am ' + U.fmtDate(d, { weekday: true })) + '"><span>' + U.WD_SHORT[U.weekday(d)] + '</span>' + (done ? '✓' : '') + '</button>';
+          }).join('') + '</div></div>';
+      }).join('') + '</div>';
+    }
+    main.innerHTML = html + '</div>';
+    main.oninput = null; main.onchange = null; main.onkeydown = null;
+    main.onclick = (e) => {
+      if (handleClick(e)) return;
+      let el;
+      if ((el = e.target.closest('[data-hedit]'))) { editHabit(st.habits.find((x) => x.id === el.dataset.hedit)); return; }
+      if (e.target.closest('[data-act="habit-add"]')) editHabit(null);
+      else if ((el = e.target.closest('[data-nav]'))) app.go(el.dataset.nav);
+    };
+  }
+
+  LP.habits = { chipsHtml, handleClick, editHabit };
+  LP.app.views.gewohnheiten = { render };
+})(typeof self !== 'undefined' ? self : this);
+
+</script>
+<script>/* js/views/finance.js */
+/* Finanzen: Ausgaben und Einnahmen in €, ein Monatsbudget, Ausgaben je Kategorie */
+(function (root) {
+  'use strict';
+  const LP = root.LP, U = LP.u, L = LP.life, esc = U.esc;
+  let monthOffset = 0;
+  const eur = (x) => (Number(x) || 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+  function shiftMonth(month, n) {
+    const [y, m] = month.split('-').map(Number);
+    const t = y * 12 + (m - 1) + n;
+    return Math.floor(t / 12) + '-' + String((t % 12) + 1).padStart(2, '0');
+  }
+  const MONTHS_LONG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  const monthName = (month) => MONTHS_LONG[Number(month.slice(5, 7)) - 1] + ' ' + month.slice(0, 4);
+
+  async function editEntry(entry, type) {
+    const app = LP.app, F = app.state.finance, isNew = !entry;
+    const e = entry || { id: '', date: app.today(), type: type || 'out', amount: '', category: F.categories[0] || 'Sonstiges', note: '' };
+    const r = await LP.ui.form(isNew ? (e.type === 'in' ? 'Einnahme' : 'Ausgabe') + ' eintragen' : 'Eintrag bearbeiten', [
+      { name: 'type', label: 'Art', type: 'select', value: e.type, options: [{ value: 'out', label: 'Ausgabe' }, { value: 'in', label: 'Einnahme' }] },
+      { name: 'amount', label: 'Betrag (€)', value: e.amount === '' ? '' : String(e.amount).replace('.', ','), placeholder: 'z. B. 12,50', autofocus: true, inputmode: 'decimal' },
+      { name: 'category', label: 'Kategorie', type: 'select', value: e.category, options: F.categories.map((c) => ({ value: c, label: c })) },
+      { name: 'date', label: 'Datum', type: 'date', value: e.date },
+      { name: 'note', label: 'Notiz (optional)', value: e.note || '', placeholder: 'z. B. Mensa, BAföG' }
+    ], {
+      extraButtons: isNew ? [] : [{ label: 'Löschen', value: 'delete', kind: 'ghost' }],
+      validate: (v) => (v === 'delete' ? '' : !(U.parseNum(v.amount) > 0) ? 'Bitte einen Betrag über 0 eingeben.' : !U.isDateStr(v.date) ? 'Bitte ein Datum wählen.' : ''),
+      onOpen(el) {
+        const sel = el.querySelector('#f_type'), cat = el.querySelector('#f_category').closest('.fld');
+        const upd = () => { cat.style.display = sel.value === 'out' ? '' : 'none'; };
+        sel.addEventListener('change', upd); upd();
+      }
+    });
+    if (!r) return;
+    if (r === 'delete') {
+      F.entries = F.entries.filter((x) => x !== e); app.commit();
+      LP.ui.toast('Eintrag gelöscht.', 'info', { action: 'Rückgängig', onAction: () => { F.entries.push(e); app.commit(); } });
+      return;
+    }
+    Object.assign(e, { type: r.type, amount: Math.round(U.parseNum(r.amount) * 100) / 100, category: r.type === 'out' ? r.category : '', date: r.date, note: r.note.trim() });
+    if (isNew) { e.id = U.uid('e'); F.entries.push(e); }
+    app.commit();
+  }
+
+  async function editSettings() {
+    const app = LP.app, F = app.state.finance;
+    const r = await LP.ui.form('Budget und Kategorien', [
+      { name: 'budget', label: 'Monatsbudget für Ausgaben (€, leer = keins)', value: F.budget === '' ? '' : String(F.budget).replace('.', ','), placeholder: 'z. B. 900', inputmode: 'decimal' },
+      { name: 'categories', label: 'Kategorien (eine pro Zeile)', type: 'textarea', rows: 6, value: F.categories.join('\n') }
+    ], { validate: (v) => (v.budget.trim() && !(U.parseNum(v.budget) >= 0) ? 'Bitte ein gültiges Budget eingeben.' : !v.categories.trim() ? 'Bitte mindestens eine Kategorie angeben.' : '') });
+    if (!r) return;
+    F.budget = r.budget.trim() ? U.parseNum(r.budget) : '';
+    F.categories = Array.from(new Set(r.categories.split('\n').map((x) => x.trim()).filter(Boolean)));
+    app.commit();
+  }
+
+  function render(main) {
+    const app = LP.app, st = app.state, F = st.finance, today = app.today();
+    const month = shiftMonth(today.slice(0, 7), monthOffset);
+    const m = L.financeMonth(F, month);
+    const cats = Object.entries(m.byCat).sort((a, b) => b[1] - a[1]);
+    const maxCat = cats.length ? cats[0][1] : 0;
+    let html = '<div class="page"><div class="page-head"><div class="grow"><h1>Finanzen</h1><div class="page-sub">' + monthName(month) + '</div></div>' +
+      '<button class="btn" data-fm="-1" aria-label="Vorheriger Monat">←</button><button class="btn" data-fm="0">Dieser Monat</button><button class="btn" data-fm="1" aria-label="Nächster Monat">→</button></div>' +
+      '<div class="row wrap" style="gap:8px;margin-bottom:14px"><button class="btn primary" data-fin="out">− Ausgabe</button><button class="btn" data-fin="in">＋ Einnahme</button><span class="spacer"></span><button class="btn ghost" data-fin="settings">Budget & Kategorien</button></div>';
+    html += '<div class="cards stats">' +
+      '<div class="card stat"><b>' + eur(m.expenses) + '</b><span>Ausgaben</span></div>' +
+      '<div class="card stat"><b>' + eur(m.income) + '</b><span>Einnahmen</span></div>' +
+      '<div class="card stat"><b style="color:' + (m.balance < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + eur(m.balance) + '</b><span>Bilanz</span></div>' +
+      (m.budget ? '<div class="card stat"><b style="color:' + (m.left < 0 ? 'var(--bad)' : 'inherit') + '">' + eur(m.left) + '</b><span>' + (m.left < 0 ? 'über Budget' : 'Budget übrig') + ' (' + eur(m.budget) + ')</span><div class="bar" style="margin-top:6px"><i style="width:' + Math.min(100, Math.round(m.expenses / m.budget * 100)) + '%;' + (m.left < 0 ? 'background:var(--bad)' : '') + '"></i></div></div>' : '') +
+      '</div>';
+    if (cats.length) html += '<div class="card section"><h3>Ausgaben nach Kategorie</h3>' + cats.map(([c, v]) => '<div class="row small" style="margin:8px 0 4px"><span class="grow">' + esc(c) + '</span><b>' + eur(v) + '</b></div><div class="bar"><i style="width:' + Math.round(v / maxCat * 100) + '%"></i></div>').join('') + '</div>';
+    const list = m.entries.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    html += '<div class="card section"><h3>Einträge</h3>' + (list.length ? '<div class="list flat">' + list.map((e) =>
+      '<button class="li todo-main" data-fedit="' + e.id + '" style="width:100%"><span class="title grow">' + esc(e.type === 'in' ? 'Einnahme' : e.category || 'Sonstiges') + (e.note ? ' <span class="muted">· ' + esc(e.note) + '</span>' : '') + '</span>' +
+      '<span class="small muted">' + U.fmtDate(e.date, { year: false }) + '</span> <b style="min-width:90px;text-align:right;color:' + (e.type === 'in' ? 'var(--ok)' : 'inherit') + '">' + (e.type === 'in' ? '+' : '−') + eur(Math.abs(e.amount)) + '</b></button>').join('') + '</div>'
+      : '<div class="empty">Keine Einträge in diesem Monat.</div>') + '</div>';
+    main.innerHTML = html + '</div>';
+    main.oninput = null; main.onchange = null; main.onkeydown = null;
+    main.onclick = (e) => {
+      let el;
+      if ((el = e.target.closest('[data-fm]'))) { monthOffset = el.dataset.fm === '0' ? 0 : monthOffset + Number(el.dataset.fm); app.render(); return; }
+      if ((el = e.target.closest('[data-fedit]'))) { editEntry(F.entries.find((x) => x.id === el.dataset.fedit)); return; }
+      if ((el = e.target.closest('[data-fin]'))) { if (el.dataset.fin === 'settings') editSettings(); else editEntry(null, el.dataset.fin); }
+    };
+  }
+
+  LP.finance = { eur, editEntry };
+  LP.app.views.finanzen = { render };
+})(typeof self !== 'undefined' ? self : this);
+
+</script>
+<script>/* js/views/goals.js */
+/* Ziele (Startseite): Zahlenziel mit Frist; Wert von Hand oder verknüpft (Gewohnheit, Gym, Ersparnis, Kapitel), gezählt ab Start */
+(function (root) {
+  'use strict';
+  const LP = root.LP, U = LP.u, L = LP.life, esc = U.esc;
+
+  // Eine Auswahl kodiert Quelle und Verknüpfung: 'manual' | 'gym' | 'savings' | 'chapters:' | 'chapters:<kursId>' | 'habit:<id>'
+  function linkOptions(st) {
+    return [{ value: 'manual', label: 'Von Hand eintragen' }, { value: 'gym', label: 'Gym-Trainings (Tage)' }, { value: 'savings', label: 'Ersparnis (Einnahmen − Ausgaben, €)' },
+      { value: 'chapters:', label: 'Kapitel erledigt – alle Kurse' }]
+      .concat(st.courses.map((c) => ({ value: 'chapters:' + c.id, label: 'Kapitel erledigt – ' + c.emoji + ' ' + c.name })))
+      .concat(st.habits.map((h) => ({ value: 'habit:' + h.id, label: 'Gewohnheit – ' + h.emoji + ' ' + h.name })));
+  }
+  const linkOf = (g) => (g.source === 'habit' || g.source === 'chapters' ? g.source + ':' + (g.ref || '') : g.source || 'manual');
+  const fmtVal = (g, v) => (g.source === 'savings' ? LP.finance.eur(v) : (Math.round(v * 10) / 10).toLocaleString('de-DE') + (g.unit ? ' ' + g.unit : ''));
+
+  async function editGoal(goal) {
+    const app = LP.app, st = app.state, isNew = !goal;
+    const g = goal || { id: '', title: '', target: '', unit: '', deadline: '', start: app.today(), source: 'manual', ref: '', value: 0 };
+    const r = await LP.ui.form(isNew ? 'Neues Ziel' : 'Ziel bearbeiten', [
+      { name: 'title', label: 'Ziel', value: g.title, placeholder: 'z. B. 12 Bücher lesen, 500 € sparen', autofocus: true },
+      { name: 'target', label: 'Zielwert', value: g.target === '' ? '' : String(g.target).replace('.', ','), placeholder: 'z. B. 12', inputmode: 'decimal' },
+      { name: 'unit', label: 'Einheit (optional)', value: g.unit || '', placeholder: 'z. B. Bücher, km' },
+      { name: 'link', label: 'Fortschritt kommt aus', type: 'select', value: linkOf(g), options: linkOptions(st) },
+      { name: 'value', label: 'Aktueller Wert', value: String(g.value || 0).replace('.', ','), inputmode: 'decimal' },
+      { name: 'start', label: 'Zählt ab', type: 'date', value: g.start || app.today(), hint: 'Verknüpfte Ziele zählen nur, was ab diesem Tag passiert.' },
+      { name: 'deadline', label: 'Frist (optional)', type: 'date', value: g.deadline || '' }
+    ], {
+      extraButtons: isNew ? [] : [{ label: 'Löschen', value: 'delete', kind: 'ghost' }],
+      validate: (v) => (v === 'delete' ? '' : !v.title.trim() ? 'Bitte das Ziel beschreiben.' : !(U.parseNum(v.target) > 0) ? 'Bitte einen Zielwert über 0 eingeben.' : v.link === 'manual' && !(U.parseNum(v.value) >= 0) ? 'Bitte einen gültigen aktuellen Wert eingeben.' : ''),
+      onOpen(el) {
+        const sel = el.querySelector('#f_link'), val = el.querySelector('#f_value').closest('.fld'), start = el.querySelector('#f_start').closest('.fld');
+        const upd = () => { val.style.display = sel.value === 'manual' ? '' : 'none'; start.style.display = sel.value === 'manual' ? 'none' : ''; };
+        sel.addEventListener('change', upd); upd();
+      }
+    });
+    if (!r) return;
+    if (r === 'delete') { st.goals = st.goals.filter((x) => x !== g); app.commit(); return; }
+    const [source, ref] = r.link.split(':');
+    Object.assign(g, { title: r.title.trim(), target: U.parseNum(r.target), unit: r.unit.trim(), source, ref: ref || '', deadline: r.deadline, start: r.start || app.today() });
+    if (source === 'manual') g.value = U.parseNum(r.value);
+    if (isNew) { g.id = U.uid('z'); st.goals.push(g); }
+    app.commit();
+  }
+
+  /** Karte für die Startseite. */
+  function cardHtml(today) {
+    const st = LP.app.state;
+    let h = '<div class="card"><div class="row" style="margin-bottom:8px"><h3 class="grow" style="margin:0">Ziele</h3><button class="btn sm ghost" data-goal-add>＋ Ziel</button></div>';
+    if (!st.goals.length) return h + '<p class="muted small" style="margin:0">Setz dir ein Zahlenziel, z. B. „12 Bücher lesen“ oder „500 € sparen“ – von Hand oder mit Gewohnheit, Gym, Finanzen oder Kapiteln verknüpft.</p></div>';
+    const list = st.goals.map((g) => ({ g, p: L.goalProgress(g, st, today) })).sort((a, b) => (a.p.done - b.p.done) || ((a.g.deadline || '9999') < (b.g.deadline || '9999') ? -1 : 1));
+    h += list.map(({ g, p }) => '<button class="goal" data-goal="' + g.id + '"><div class="row small"><b class="grow">' + (p.done ? '✓ ' : '') + esc(g.title) + '</b><span class="muted">' + esc(fmtVal(g, p.value)) + ' / ' + esc(fmtVal(g, p.target)) + '</span></div>' +
+      '<div class="bar"><i style="width:' + Math.round(p.pct * 100) + '%;' + (p.done ? 'background:var(--ok)' : '') + '"></i></div>' +
+      (p.daysLeft != null && !p.done ? '<div class="small ' + (p.daysLeft < 0 ? '" style="color:var(--bad)' : 'faint') + '">' + (p.daysLeft < 0 ? 'Frist vorbei' : p.daysLeft === 0 ? 'Frist heute' : 'noch ' + p.daysLeft + ' Tage') + '</div>' : '') + '</button>').join('');
+    return h + '</div>';
+  }
+  function handleClick(e) {
+    let el;
+    if (e.target.closest('[data-goal-add]')) { editGoal(null); return true; }
+    if ((el = e.target.closest('[data-goal]'))) { editGoal(LP.app.state.goals.find((x) => x.id === el.dataset.goal)); return true; }
+    return false;
+  }
+
+  LP.goals = { cardHtml, handleClick, editGoal };
 })(typeof self !== 'undefined' ? self : this);
 
 </script>
@@ -3643,9 +4080,11 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     const ws = U.addDays(U.startOfWeek(today), off * 7);
     const exams = {};
     for (const c of st.courses) if (U.isDateStr(c.examDate)) (exams[c.examDate] = exams[c.examDate] || []).push(c);
+    const dues = {};
+    for (const t of st.tasks) if (t.due) (dues[t.due.slice(0, 10)] = dues[t.due.slice(0, 10)] || []).push(t);
 
     let html = '<div class="page wide"><div class="page-head"><div class="grow"><h1>Wochenkalender</h1><div class="page-sub">' +
-      U.fmtDate(ws, { year: false }) + ' – ' + U.fmtDate(U.addDays(ws, 6)) + ' · deine importierten Termine · Klick auf einen Tag ändert die Lernzeit</div></div>' +
+      U.fmtDate(ws, { year: false }) + ' – ' + U.fmtDate(U.addDays(ws, 6)) + ' · deine importierten Termine und Abgaben · Klick auf einen Tag ändert die Lernzeit</div></div>' +
       '<button class="btn" data-wk="-1" aria-label="Vorherige Woche">←</button><button class="btn" data-wk="0">Diese Woche</button><button class="btn" data-wk="1" aria-label="Nächste Woche">→</button></div>';
     html += '<div class="week">';
     for (let i = 0; i < 7; i++) {
@@ -3658,10 +4097,14 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
         '<div class="day-head"><span>' + U.WD_SHORT[U.weekday(d)] + '</span><b>' + U.fmtDateShort(d) + '</b></div>' +
         '<div class="day-cap">' + U.fmtMin(cap) + ' · ' + esc(TYPE_LABEL[kind] || '') + (ov ? ' ✎' : '') + '</div>';
       for (const c of exams[d] || []) html += '<div class="exam-mark">🎓 Klausur ' + esc(c.name) + '</div>';
+      for (const t of dues[d] || []) {
+        const c = app.course(t.courseId), done = t.status === 'erledigt' || t.status === 'abgegeben';
+        html += '<div class="due-mark' + (done ? ' done' : '') + '" data-task-open="' + t.id + '">📝 ' + (t.due.length > 10 ? t.due.slice(11, 16) + ' ' : '') + esc((c ? c.emoji + ' ' : '') + t.title) + '</div>';
+      }
       // Nur der importierte Kalender wird gezeigt – der empfohlene Lernplan steht auf der Startseite
       const evs = LP.cal.on(d);
       if (evs.length) html += '<div class="day-events">' + evs.slice(0, 8).map((e) => '<div class="ev" title="' + esc(e.title + (e.location ? ' · ' + e.location : '')) + '"><span>' + esc(e.allDay ? 'ganztägig' : LP.cal.fmtTime(e, d)) + '</span><b>' + esc(e.title) + '</b>' + (e.location ? '<i>' + esc(e.location) + '</i>' : '') + '</div>').join('') + (evs.length > 8 ? '<div class="small faint">+ ' + (evs.length - 8) + ' weitere</div>' : '') + '</div>';
-      else if (!(exams[d] || []).length) html += '<div class="small faint">keine Termine</div>';
+      else if (!(exams[d] || []).length && !(dues[d] || []).length) html += '<div class="small faint">keine Termine</div>';
       if (past) { const learned = app.loggedMinutes(d); if (learned) html += '<div class="small faint" style="margin-top:auto">gelernt: ' + U.fmtMin(learned) + '</div>'; }
       html += '</div>';
     }
@@ -3672,6 +4115,8 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     main.onclick = (e) => {
       const w = e.target.closest('[data-wk]');
       if (w) { st.ui.weekOffset = w.dataset.wk === '0' ? 0 : (st.ui.weekOffset || 0) + Number(w.dataset.wk); app.touch(); app.render(); return; }
+      const tk = e.target.closest('[data-task-open]');
+      if (tk) { st.ui.view = 'aufgaben'; app.commit(); return; }
       const d = e.target.closest('[data-day]');
       if (d) editDay(d.dataset.day);
     };
@@ -3712,7 +4157,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
 /* Wochenrückblick: geplant vs. gelernt (nur abgeschlossene Tage), pro Tag und Kurs */
 (function (root) {
   'use strict';
-  const LP = root.LP, U = LP.u, esc = U.esc;
+  const LP = root.LP, U = LP.u, L = LP.life, esc = U.esc;
 
   function compute(st, ws, today) {
     const days = [];
@@ -3781,6 +4226,26 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     }
     html += '</div>';
 
+    // Alltag: Tageswert, Gewohnheiten, Gym, Geld, Ziele, Notiz
+    const scores = days.map((d) => (st.history[d.date] || {}).score).filter((x) => typeof x === 'number');
+    const spent = st.finance.entries.filter((e) => e.type !== 'in' && e.date >= ws && e.date <= we).reduce((a, e) => a + Math.abs(Number(e.amount) || 0), 0);
+    const gymDays = L.gymStats(st.gym, ws, we).days;
+    html += '<div class="section"><div class="section-title">Alltag</div><div class="cards stats" style="margin-top:0">' +
+      '<div class="card stat"><span>Ø Tageswert</span><b>' + (scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : '–') + '</b></div>' +
+      '<div class="card stat"><span>Gym-Tage</span><b>' + gymDays + '</b></div>' +
+      '<div class="card stat"><span>Ausgaben</span><b>' + LP.finance.eur(spent) + '</b></div></div>';
+    if (scores.length) html += '<div class="card" style="margin-top:12px"><h3>Tageswert</h3><div class="bars">' + days.map((d) => { const v = (st.history[d.date] || {}).score; return '<div class="grp" title="' + esc(U.fmtDate(d.date) + ': ' + (typeof v === 'number' ? v : '–')) + '"><div class="pair"><i class="l" style="height:' + (typeof v === 'number' ? v : 0) + '%"></i></div><span class="lbl">' + U.WD_SHORT[U.weekday(d.date)] + '</span></div>'; }).join('') + '</div></div>';
+    if (st.habits.length) {
+      const lastDay = we < today ? we : today;
+      html += '<div class="card" style="margin-top:12px"><h3>Gewohnheiten</h3>' + st.habits.map((h) => {
+        const n = (h.days || []).filter((d) => d >= ws && d <= we).length;
+        const goal = h.freq === 'weekly' ? L.habitTarget(h) : Math.max(1, U.diffDays(ws, lastDay) + 1);
+        return '<div class="row small" style="margin:8px 0 4px"><span class="grow">' + esc(h.emoji + ' ' + h.name) + '</span><b>' + n + ' / ' + goal + '</b></div><div class="bar"><i style="width:' + Math.min(100, Math.round(n / goal * 100)) + '%"></i></div>';
+      }).join('') + '</div>';
+    }
+    if (st.goals.length) html += '<div class="card" style="margin-top:12px"><h3>Ziele</h3>' + st.goals.map((g) => { const p = L.goalProgress(g, st, today); return '<div class="row small" style="margin:8px 0 4px"><span class="grow">' + (p.done ? '✓ ' : '') + esc(g.title) + '</span><b>' + Math.round(p.pct * 100) + ' %</b></div><div class="bar"><i style="width:' + Math.round(p.pct * 100) + '%"></i></div>'; }).join('') + '</div>';
+    html += '<div class="card" style="margin-top:12px"><h3>Notiz zur Woche</h3><textarea class="inp" id="review-note" rows="3" placeholder="Was lief gut? Was willst du nächste Woche anders machen?">' + esc(st.reviewNotes[ws] || '') + '</textarea></div></div>';
+
     // Hinweise
     const hints = [];
     const plan = app.plan();
@@ -3799,7 +4264,12 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       '<div><div class="section-title">Erledigte Abgaben</div>' + (doneTasks.length ? '<div class="list">' + doneTasks.map((t) => { const c = app.course(t.courseId); return '<div class="li"><span>' + (c ? esc(c.emoji) : '📝') + '</span><span class="title">' + esc(t.title) + '</span><span class="meta">' + U.fmtDateShort(t.doneDate) + '</span></div>'; }).join('') + '</div>' : '<div class="empty">Keine</div>') + '</div></div>';
     html += '</div>';
     main.innerHTML = html;
-    main.oninput = null; main.onchange = null;
+    main.onchange = null;
+    main.oninput = (e) => {
+      if (e.target.id !== 'review-note') return;
+      if (e.target.value.trim()) st.reviewNotes[ws] = e.target.value; else delete st.reviewNotes[ws];
+      app.save();
+    };
     main.onclick = (e) => {
       const w = e.target.closest('[data-rw]');
       if (!w || w.disabled) return;
