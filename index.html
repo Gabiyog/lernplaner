@@ -5268,7 +5268,15 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
   window.addEventListener('DOMContentLoaded', function () { LP.app.init(); });
   /* Offline-Nutzung, wenn die Seite online gehostet wird (z. B. im Gym ohne Netz). Unter file:// nicht nötig. */
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+    var hadController = !!navigator.serviceWorker.controller;
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').then(function (r) { r.update().catch(function () {}); }).catch(function () {}); });
+    /* Neue Version wurde im Hintergrund geladen → anbieten, sie sofort zu zeigen (statt erst beim übernächsten Öffnen) */
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController) { hadController = true; return; }
+      if (window.LP && LP.ui) LP.ui.toast('Neue Version verfügbar.', 'info', { action: 'Jetzt laden', duration: 20000, onAction: function () { LP.app.save.flush(); location.reload(); } });
+    });
+    /* Beim Zurückkehren in die App nach einer neuen Version suchen */
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) navigator.serviceWorker.getRegistration().then(function (r) { if (r) r.update().catch(function () {}); }); });
   }
 </script>
 </body>
