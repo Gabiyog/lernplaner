@@ -2257,7 +2257,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
   const NAV = [
     ['start', 'home', 'Start'],
     'Lernen',
-    ['dashboard', 'grid', 'Übersicht'], ['heute', 'sun', 'Heute'], ['woche', 'calendar', 'Wochenkalender'],
+    ['dashboard', 'grid', 'Übersicht'], ['woche', 'calendar', 'Wochenkalender'],
     ['rueckblick', 'chart', 'Wochenrückblick'], ['timer', 'timer', 'Timer'], ['aufgaben', 'check', 'Aufgaben'],
     'Fitness',
     ['gym', 'dumbbell', 'Gym'], ['protein', 'bolt', 'Protein']
@@ -2275,7 +2275,8 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     bolt: '<path d="M13 3 5.5 13.5H11l-1 7.5 7.5-10.5H12z"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>'
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    more: '<circle cx="12" cy="12" r="8.5"/><path d="M8 12h.01M12 12h.01M16 12h.01"/>'
   };
   const icon = (n) => '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[n] || '') + '</svg>';
 
@@ -2451,12 +2452,12 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       '<button class="nav-item" data-act="theme"><span class="ico">' + icon(st.settings.theme === 'dark' ? 'sun' : 'moon') + '</span><span class="lbl">' + (st.settings.theme === 'dark' ? 'Heller Modus' : 'Dunkler Modus') + '</span></button></div>';
   }
   // Tab-Leiste für schmale Bildschirme (iPhone)
-  const TABS = [['start', 'home', 'Start'], ['heute', 'sun', 'Lernen'], ['gym', 'dumbbell', 'Gym'], ['protein', 'bolt', 'Protein']];
+  const TABS = [['start', 'home', 'Start'], ['dashboard', 'grid', 'Lernen'], ['gym', 'dumbbell', 'Gym'], ['protein', 'bolt', 'Protein']];
   function renderTabbar() {
     const tb = document.getElementById('tabbar'); if (!tb) return;
     const v = app.state.ui.view;
     tb.innerHTML = TABS.map(([id, ico, lbl]) => '<button class="tabbar-item' + (v === id ? ' active' : '') + '" data-nav="' + id + '">' + icon(ico) + '<span>' + lbl + '</span></button>').join('') +
-      '<button class="tabbar-item' + (TABS.some((t) => t[0] === v) ? '' : ' active') + '" data-act="more" aria-label="Mehr">' + icon('grid') + '<span>Mehr</span></button>';
+      '<button class="tabbar-item' + (TABS.some((t) => t[0] === v) ? '' : ' active') + '" data-act="more" aria-label="Mehr">' + icon('more') + '<span>Mehr</span></button>';
   }
   const closeNav = () => document.getElementById('app').classList.remove('nav-open');
   function bindSidebar() {
@@ -2569,6 +2570,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     app.state = LP.storage.loadState();
     app.resetSig();
     app.nameDevice();
+    if (app.state.ui.view === 'heute') app.state.ui.view = 'start'; // die Heute-Ansicht gibt es nicht mehr, ihr Inhalt steht auf der Startseite
     applyTheme();
     bindSidebar();
     app.ensureTodayPlan(false);
@@ -2875,7 +2877,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
 
     // Lernplan heute
     const tp = st.plan.today;
-    let planHtml = '<div class="card"><div class="row" style="margin-bottom:8px"><h3 class="grow" style="margin:0">Lernplan heute</h3><button class="btn sm ghost" data-nav="heute">Alle Details →</button></div>';
+    let planHtml = '<div class="card"><div class="row" style="margin-bottom:8px"><h3 class="grow" style="margin:0">Lernplan heute</h3>' + (st.courses.length ? '<button class="btn sm ghost" data-act="replan" title="Plan für heute neu berechnen">↻ Neu planen</button>' : '') + '</div>';
     if (!st.courses.length) planHtml += '<p class="muted" style="margin:0 0 10px">Willkommen im Lernplaner 👋 Lege deine Kurse mit Klausurdatum an und lade deine Skripte hoch – dann steht hier dein Plan für den Tag.</p><button class="btn primary" data-act="add-course">＋ Ersten Kurs anlegen</button>';
     else if (!tp.blocks.length) planHtml += '<p class="muted" style="margin:0">Für heute ist nichts geplant.</p>';
     for (const b of tp.blocks) {
@@ -2959,6 +2961,9 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
       else if (a === 'todo-toggle-done') { showDone = !showDone; app.render(); }
       else if (a === 'todo-clear') {
         if (await LP.ui.confirm('Alle ' + done.length + ' erledigten To-dos löschen?', { ok: 'Löschen', danger: true })) { st.todos = st.todos.filter((x) => !x.done); app.commit(); }
+      } else if (a === 'replan') {
+        if (!(await LP.ui.confirm('Den Plan für heute neu berechnen? Bereits Erledigtes bleibt erhalten, offene Punkte werden neu verteilt. Schon gelernte Zeit von heute wird abgezogen.', { ok: 'Neu planen' }))) return;
+        app.ensureTodayPlan(true); app.render(); LP.ui.toast('Plan für heute neu berechnet.', 'ok');
       } else if (a === 'ics') LP.cal.importIcs();
       else if (a === 'add-course') app.editCourse(null);
       else if (a === 'sync') { if (LP.sync.hasFS()) LP.sync.syncWithHandle(); else app.go('einstellungen'); }
@@ -3401,7 +3406,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
     }
 
     html += '<div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr));margin-bottom:22px">' +
-      '<div class="card stat" data-nav="heute" style="cursor:pointer"><span>Heute geplant</span><b>' + U.fmtMin(todayMin) + '</b><span>' + doneItems + ' von ' + allItems + ' erledigt</span></div>' +
+      '<div class="card stat" data-nav="start" style="cursor:pointer"><span>Heute geplant</span><b>' + U.fmtMin(todayMin) + '</b><span>' + doneItems + ' von ' + allItems + ' erledigt</span></div>' +
       '<div class="card stat"><span>Diese Woche gelernt</span><b>' + U.fmtHours(weekLearned) + '</b><span>seit ' + U.fmtDate(weekStart, { year: false }) + '</span></div>' +
       '<div class="card stat" data-nav="aufgaben" style="cursor:pointer"><span>Offene Abgaben</span><b>' + st.tasks.filter((t) => t.status !== 'erledigt' && t.status !== 'abgegeben').length + '</b><span>' + (upcoming[0] ? 'nächste: ' + U.fmtDate(upcoming[0].due.slice(0, 10), { year: false }) : 'keine Fristen') + '</span></div>' +
       '<div class="card stat"><span>Nächste Klausur</span><b>' + (courses[0] && plan.stats[courses[0].id].daysLeft != null && plan.stats[courses[0].id].daysLeft >= 0 ? plan.stats[courses[0].id].daysLeft + ' Tage' : '–') + '</b><span>' + (courses[0] && U.isDateStr(courses[0].examDate) && courses[0].examDate >= today ? esc(courses[0].name) : 'kein Datum') + '</span></div>' +
@@ -3653,7 +3658,7 @@ window.LP_PDF_WORKER_SRC = "/**\n * @licstart The following is the entire licens
         '<div class="day-head"><span>' + U.WD_SHORT[U.weekday(d)] + '</span><b>' + U.fmtDateShort(d) + '</b></div>' +
         '<div class="day-cap">' + U.fmtMin(cap) + ' · ' + esc(TYPE_LABEL[kind] || '') + (ov ? ' ✎' : '') + '</div>';
       for (const c of exams[d] || []) html += '<div class="exam-mark">🎓 Klausur ' + esc(c.name) + '</div>';
-      // Nur der importierte Kalender wird gezeigt – der empfohlene Lernplan steht unter „Heute“
+      // Nur der importierte Kalender wird gezeigt – der empfohlene Lernplan steht auf der Startseite
       const evs = LP.cal.on(d);
       if (evs.length) html += '<div class="day-events">' + evs.slice(0, 8).map((e) => '<div class="ev" title="' + esc(e.title + (e.location ? ' · ' + e.location : '')) + '"><span>' + esc(e.allDay ? 'ganztägig' : LP.cal.fmtTime(e, d)) + '</span><b>' + esc(e.title) + '</b>' + (e.location ? '<i>' + esc(e.location) + '</i>' : '') + '</div>').join('') + (evs.length > 8 ? '<div class="small faint">+ ' + (evs.length - 8) + ' weitere</div>' : '') + '</div>';
       else if (!(exams[d] || []).length) html += '<div class="small faint">keine Termine</div>';
